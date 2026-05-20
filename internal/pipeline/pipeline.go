@@ -62,6 +62,7 @@ func Run(cfg *config.Config) error {
 	// Plan (PK detection + MIN/MAX)
 	plan, err := planner.New(logDB, cfg)
 	if err != nil {
+		rep.Error("plan generation failed: %v", err)
 		return fmt.Errorf("plan generation failed: %w", err)
 	}
 	rep.Logger().Info("execution plan generated",
