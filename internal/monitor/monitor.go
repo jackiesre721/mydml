@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -214,8 +215,10 @@ func queryLagColumns(db *sql.DB, query string, lagColumns ...string) (float64, e
 		for i, col := range cols {
 			if col == lagCol {
 				if ns, ok := vals[i].(*sql.NullString); ok && ns.Valid {
-					var sec float64
-					fmt.Sscanf(ns.String, "%f", &sec)
+					sec, err := strconv.ParseFloat(ns.String, 64)
+					if err != nil {
+						return 0, fmt.Errorf("parse lag value %q: %w", ns.String, err)
+					}
 					return sec, nil
 				}
 			}
