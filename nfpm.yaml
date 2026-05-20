@@ -1,0 +1,17 @@
+name: mydml
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+section: utils
+priority: optional
+maintainer: Richie Liu <rliuqian@gmail.com>
+description: |
+  MySQL large-scale DML tool — batch DELETE/UPDATE/INSERT_SELECT
+  without locking. Splits DML by primary key range with adaptive
+  throttling and replication lag control.
+vendor: jackiesre721
+homepage: https://github.com/jackiesre721/mydml
+license: MIT
+contents:
+  - src: ./mydml
+    dst: /usr/bin/mydml

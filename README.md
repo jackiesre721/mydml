@@ -27,6 +27,23 @@
 go install github.com/jackiesre721/mydml/cmd/mydml@latest
 ```
 
+**macOS (Homebrew):**
+
+```bash
+brew install jackiesre721/tap/mydml
+```
+
+**Linux (deb/rpm):**
+
+```bash
+# Debian/Ubuntu
+wget https://github.com/jackiesre721/mydml/releases/latest/download/mydml_v1.0.0_amd64.deb
+sudo dpkg -i mydml_v1.0.0_amd64.deb
+
+# RHEL/CentOS/Fedora
+sudo rpm -i https://github.com/jackiesre721/mydml/releases/latest/download/mydml_v1.0.0_x86_64.rpm
+```
+
 Or build from source:
 
 ```bash
