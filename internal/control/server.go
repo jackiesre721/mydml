@@ -115,12 +115,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	snapshot := StatusSnapshot{
-		Status:       status,
-		Table:        s.cfg.Table,
+		Status:        status,
+		Table:         s.cfg.Table,
 		TotalAffected: stats.TotalAffected,
-		TotalChunks:  stats.TotalChunks,
-		ReplLag:      stats.MaxReplLag,
-		DryRun:       s.cfg.DryRun,
+		TotalChunks:   stats.TotalChunks,
+		ReplLag:       stats.MaxReplLag,
+		DryRun:        s.cfg.DryRun,
 	}
 
 	s.mu.RLock()

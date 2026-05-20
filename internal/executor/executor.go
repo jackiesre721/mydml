@@ -53,10 +53,10 @@ func NewExecutor(db *config.LogDB, cfg *config.Config, plan *planner.Plan, t *th
 
 func (e *Executor) IsPaused() bool  { return e.paused.Load() }
 func (e *Executor) IsStopped() bool { return e.stopped.Load() }
-func (e *Executor) Pause()         { e.paused.Store(true) }
-func (e *Executor) Resume()        { e.paused.Store(false) }
-func (e *Executor) Stop()          { e.stopped.Store(true) }
-func (e *Executor) Panic()         { e.panicked.Store(true) }
+func (e *Executor) Pause()          { e.paused.Store(true) }
+func (e *Executor) Resume()         { e.paused.Store(false) }
+func (e *Executor) Stop()           { e.stopped.Store(true) }
+func (e *Executor) Panic()          { e.panicked.Store(true) }
 
 func (e *Executor) updateMaxLag(lag float64) {
 	for {

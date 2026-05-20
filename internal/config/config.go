@@ -30,9 +30,9 @@ type Config struct {
 	SleepMs   int
 	MaxLagSec int
 
-	NiceRatio    float64
-	MaxLoad      string
-	CriticalLoad string
+	NiceRatio     float64
+	MaxLoad       string
+	CriticalLoad  string
 	ThrottleQuery string
 	CheckSlaveLag []string // host:port list for replica lag checking
 

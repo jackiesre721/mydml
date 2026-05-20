@@ -166,13 +166,13 @@ func TestAnnotate(t *testing.T) {
 
 func validConfig() *Config {
 	return &Config{
-		Host:     "10.0.0.1",
-		Port:     3307,
-		User:     "root",
-		Password: "secret",
-		Database: "testdb",
-		Table:    "users",
-		Where:    "created_at < '2024-01-01'",
+		Host:      "10.0.0.1",
+		Port:      3307,
+		User:      "root",
+		Password:  "secret",
+		Database:  "testdb",
+		Table:     "users",
+		Where:     "created_at < '2024-01-01'",
 		BatchSize: 500,
 		SleepMs:   100,
 		MaxLagSec: 1,
