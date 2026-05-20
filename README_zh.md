@@ -23,8 +23,10 @@
 
 ## 安装
 
+**一键安装（macOS / Linux）：**
+
 ```bash
-go install github.com/jackiesre721/mydml/cmd/mydml@latest
+curl -fsSL https://github.com/jackiesre721/mydml/raw/main/install.sh | bash
 ```
 
 **macOS (Homebrew)：**
@@ -37,11 +39,17 @@ brew install jackiesre721/tap/mydml
 
 ```bash
 # Debian/Ubuntu
-wget https://github.com/jackiesre721/mydml/releases/latest/download/mydml_v1.0.0_amd64.deb
-sudo dpkg -i mydml_v1.0.0_amd64.deb
+wget https://github.com/jackiesre721/mydml/releases/latest/download/mydml_amd64.deb
+sudo dpkg -i mydml_amd64.deb
 
 # RHEL/CentOS/Fedora
-sudo rpm -i https://github.com/jackiesre721/mydml/releases/latest/download/mydml_v1.0.0_x86_64.rpm
+sudo rpm -i https://github.com/jackiesre721/mydml/releases/latest/download/mydml_amd64.rpm
+```
+
+**Go install：**
+
+```bash
+go install github.com/jackiesre721/mydml/cmd/mydml@latest
 ```
 
 或从源码构建：
@@ -51,8 +59,6 @@ git clone https://github.com/jackiesre721/mydml.git
 cd mydml
 make build
 ```
-
-需要 Go 1.22+。
 
 ## 快速开始
 
