@@ -36,7 +36,7 @@ func Run(cfg *config.Config) error {
 	defer db.Close()
 	cfg.SetupPool(db)
 
-	if err := db.Ping(); err != nil {
+	if err = db.Ping(); err != nil {
 		return fmt.Errorf("ping MySQL: %w", err)
 	}
 	rep.Logger().Info("connected to MySQL", slog.String("host", cfg.Host), slog.Int("port", cfg.Port))
@@ -90,8 +90,8 @@ func Run(cfg *config.Config) error {
 	// Start control server
 	srv := control.New(cfg.ControlAddr, cfg, e)
 	go func() {
-		if err := srv.Start(ctx); err != nil {
-			rep.Warn("control server error: %v", err)
+		if srvErr := srv.Start(ctx); srvErr != nil {
+			rep.Warn("control server error: %v", srvErr)
 		}
 	}()
 	rep.Logger().Info("control server started", slog.String("addr", cfg.ControlAddr))

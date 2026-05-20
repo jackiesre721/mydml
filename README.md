@@ -183,20 +183,6 @@ curl -X PUT http://127.0.0.1:8080/api/v1/config \
 - **PK range constrains batch size** — each chunk covers exactly batch_size PK values, no LIMIT needed
 - **Adaptive throttle** — increases sleep when replication lag, lock waits, or server load exceeds thresholds
 
-## Comparison
-
-| Feature | mydml | pt-archiver | gh-ost |
-|---------|-------|-------------|--------|
-| Batch DELETE | Yes | Yes | No |
-| Batch UPDATE | Yes | Limited | No |
-| Batch INSERT_SELECT | Yes | No | No |
-| Replication lag control | Yes | Yes | Yes |
-| Load-aware throttle | Yes | Limited | No |
-| HTTP pause/resume/stop | Yes | No | Yes |
-| Dry-run mode | Yes | No | No |
-| No external dependencies | Yes (single binary) | No (Perl) | No (requires binlog) |
-| Online DDL | No | No | Yes |
-
 ## Requirements
 
 - MySQL 5.7+ or compatible (MariaDB, TiDB, etc.)
