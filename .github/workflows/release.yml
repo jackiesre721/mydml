@@ -33,7 +33,7 @@ jobs:
           go-version: "1.22"
 
       - name: Set version
-        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
 
       - name: Build binary
         env:
@@ -41,12 +41,11 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          go build -ldflags="-s -w -X main.version=${VERSION}" -o mydml ./cmd/mydml
+          go build -ldflags="-s -w" -o mydml ./cmd/mydml
+          chmod +x mydml
 
-      - name: Package tarball (macOS)
-        if: matrix.goos == 'darwin'
-        run: |
-          tar czf mydml_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz mydml
+      - name: Package tarball
+        run: tar czf mydml_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz mydml
 
       - name: Install nfpm
         if: matrix.goos == 'linux'
@@ -57,16 +56,14 @@ jobs:
         run: |
           export ARCH=${{ matrix.arch }}
           export VERSION=${VERSION}
-          nfpm pkg -f nfpm.yaml -t deb
-          mv *.deb mydml_${VERSION}_${{ matrix.goarch }}.deb
+          nfpm pkg -f nfpm.yaml --packager deb -t mydml_${{ matrix.goarch }}.deb
 
       - name: Package rpm
         if: matrix.goos == 'linux'
         run: |
           export ARCH=${{ matrix.arch }}
           export VERSION=${VERSION}
-          nfpm pkg -f nfpm.yaml -t rpm
-          mv *.rpm mydml_${VERSION}_${{ matrix.goarch }}.rpm
+          nfpm pkg -f nfpm.yaml --packager rpm -t mydml_${{ matrix.goarch }}.rpm
 
       - name: Upload assets
         uses: softprops/action-gh-release@v2
