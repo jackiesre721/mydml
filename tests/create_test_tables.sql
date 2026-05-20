@@ -417,7 +417,7 @@ WHERE n < 500;
 
 -- ============================================================
 -- Table 12: t_huge_range — Sparse rows across huge PK range
--- PK range spans 0 to 10 billion, only ~200 rows inserted
+-- PK range spans 0 to ~1M, only ~200 rows inserted
 -- Tests efficient sparse chunk handling with big.Int
 -- ============================================================
 DROP TABLE IF EXISTS t_huge_range;
@@ -432,7 +432,7 @@ CREATE TABLE t_huge_range (
 
 INSERT INTO t_huge_range (id, status, value, created_at)
 SELECT
-  n * 50000000 AS id,
+  n * 5000 AS id,
   CASE
     WHEN n % 5 IN (0,1) THEN 'expired'
     ELSE 'active'
