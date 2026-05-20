@@ -29,25 +29,31 @@ type Executor struct {
 	Monitor   *monitor.Monitor
 	Reporter  *reporter.Reporter
 
-	paused      atomic.Bool
-	stopped     atomic.Bool
-	panicked    atomic.Bool
-	totalAff    atomic.Int64
-	totalChunks atomic.Int64
-	maxLagBits  atomic.Uint64
-	startTime   time.Time
+	paused          atomic.Bool
+	stopped         atomic.Bool
+	panicked        atomic.Bool
+	totalAff        atomic.Int64
+	totalChunks     atomic.Int64
+	maxLagBits      atomic.Uint64
+	consecutiveFail atomic.Int64
+	startTime       time.Time
+
+	maxRetries       int
+	maxConsecFails   int64
 }
 
 func NewExecutor(db *config.LogDB, cfg *config.Config, plan *planner.Plan, t *throttler.Throttler,
 	mon *monitor.Monitor, rep *reporter.Reporter) *Executor {
 	return &Executor{
-		DB:        db,
-		Cfg:       cfg,
-		Plan:      plan,
-		Throttler: t,
-		Monitor:   mon,
-		Reporter:  rep,
-		startTime: time.Now(),
+		DB:             db,
+		Cfg:            cfg,
+		Plan:           plan,
+		Throttler:      t,
+		Monitor:        mon,
+		Reporter:       rep,
+		startTime:      time.Now(),
+		maxRetries:     3,
+		maxConsecFails: 10,
 	}
 }
 
@@ -131,15 +137,31 @@ func (e *Executor) executeDryRunChunk(ctx context.Context, chunkCol, table, wher
 func (e *Executor) executeRealChunk(ctx context.Context, chunkCol, table, where string, chunkIndex, curStart, chunkEnd int64) (int64, time.Duration) {
 	startTime := time.Now()
 	query := e.buildChunkSQL(table, chunkCol, curStart, chunkEnd, where)
-	result, err := e.DB.ExecSQL(ctx, query)
-	if err != nil {
-		e.Reporter.Error("%s failed at chunk %d [%d,%d): %v | sql=%.200s", e.Cfg.Mode, chunkIndex, curStart, chunkEnd, err, query)
-		return 0, time.Since(startTime)
+
+	for attempt := 0; attempt <= e.maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(attempt*attempt) * time.Second
+			e.Reporter.Warn("retrying chunk %d [%d,%d), attempt %d, backoff %v", chunkIndex, curStart, chunkEnd, attempt+1, backoff)
+			if err := e.Throttler.Sleep(ctx, backoff); err != nil {
+				return 0, time.Since(startTime)
+			}
+		}
+
+		result, err := e.DB.ExecSQL(ctx, query)
+		if err != nil {
+			e.Reporter.Error("%s failed at chunk %d [%d,%d): %v | sql=%.200s", e.Cfg.Mode, chunkIndex, curStart, chunkEnd, err, query)
+			continue
+		}
+		affected, _ := result.RowsAffected()
+		e.totalAff.Add(affected)
+		e.totalChunks.Add(1)
+		e.consecutiveFail.Store(0)
+		return affected, time.Since(startTime)
 	}
-	affected, _ := result.RowsAffected()
-	e.totalAff.Add(affected)
-	e.totalChunks.Add(1)
-	return affected, time.Since(startTime)
+
+	e.Reporter.Error("chunk %d [%d,%d) failed after %d retries", chunkIndex, curStart, chunkEnd, e.maxRetries)
+	e.consecutiveFail.Add(1)
+	return 0, time.Since(startTime)
 }
 
 func (e *Executor) Execute(ctx context.Context) (*Stats, error) {
@@ -182,6 +204,11 @@ func (e *Executor) Execute(ctx context.Context) (*Stats, error) {
 
 		chunkAffected, chunkDuration := e.executeChunk(ctx, chunkCol, table, where, chunkIndex, chunkStart, chunkEnd)
 
+		if fails := e.consecutiveFail.Load(); fails >= e.maxConsecFails {
+			e.Reporter.Error("too many consecutive failures (%d), aborting", fails)
+			break
+		}
+
 		lag, _ := e.Monitor.CheckReplicationLag()
 		e.updateMaxLag(lag)
 
@@ -210,7 +237,11 @@ func (e *Executor) Execute(ctx context.Context) (*Stats, error) {
 			break
 		}
 
-		chunkStart += e.Plan.ChunkStep
+		nextStart := chunkStart + e.Plan.ChunkStep
+		if nextStart <= chunkStart {
+			break
+		}
+		chunkStart = nextStart
 		chunkIndex++
 	}
 
