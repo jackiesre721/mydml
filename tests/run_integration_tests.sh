@@ -787,6 +787,59 @@ else
 fi
 
 # ============================================================
+# GROUP I: Extreme Value Tests (BIGINT UNSIGNED, Negative PK, Huge Range)
+# ============================================================
+
+# Test 44: BIGINT UNSIGNED near max value
+log "--- Test 44: BIGINT UNSIGNED near max ---"
+setup_no_fk
+before=$(count_matching t_big_unsigned "status = 'expired' AND created_at < '2024-01-01'")
+run_tool "$LOGDIR/test44.log" \
+  --table=t_big_unsigned \
+  --where="status = 'expired' AND created_at < '2024-01-01'"
+after=$(count_matching t_big_unsigned "status = 'expired' AND created_at < '2024-01-01'")
+if log_has "$LOGDIR/test44.log" "plan generated" \
+  && log_has "$LOGDIR/test44.log" "task completed" \
+  && [[ "$before" -gt 0 ]] \
+  && [[ "$after" -eq 0 ]]; then
+  pass "Test 44: BIGINT UNSIGNED near max (deleted $before)"
+else
+  fail "Test 44: BIGINT UNSIGNED near max (before=$before after=$after)"
+fi
+
+# Test 45: Negative PK values
+log "--- Test 45: Negative PK ---"
+before=$(count_matching t_negative_pk "status = 'expired' AND created_at < '2024-01-01'")
+run_tool "$LOGDIR/test45.log" \
+  --table=t_negative_pk \
+  --where="status = 'expired' AND created_at < '2024-01-01'"
+after=$(count_matching t_negative_pk "status = 'expired' AND created_at < '2024-01-01'")
+if log_has "$LOGDIR/test45.log" "plan generated" \
+  && log_has "$LOGDIR/test45.log" "task completed" \
+  && [[ "$before" -gt 0 ]] \
+  && [[ "$after" -eq 0 ]]; then
+  pass "Test 45: Negative PK (deleted $before)"
+else
+  fail "Test 45: Negative PK (before=$before after=$after)"
+fi
+
+# Test 46: Huge PK range with sparse data
+log "--- Test 46: Huge PK range sparse ---"
+before=$(count_matching t_huge_range "status = 'expired' AND created_at < '2024-01-01'")
+run_tool "$LOGDIR/test46.log" \
+  --table=t_huge_range \
+  --where="status = 'expired' AND created_at < '2024-01-01'"
+after=$(count_matching t_huge_range "status = 'expired' AND created_at < '2024-01-01'")
+if log_has "$LOGDIR/test46.log" "plan generated" \
+  && log_has "$LOGDIR/test46.log" "task completed" \
+  && [[ "$before" -gt 0 ]] \
+  && [[ "$after" -eq 0 ]]; then
+  pass "Test 46: Huge PK range sparse (deleted $before)"
+else
+  fail "Test 46: Huge PK range sparse (before=$before after=$after)"
+fi
+
+# ============================================================
 # Summary
 # ============================================================
 echo ""

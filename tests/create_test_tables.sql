@@ -351,6 +351,92 @@ FROM _nums
 WHERE n < 20000;
 
 -- ============================================================
+-- Table 10: t_big_unsigned — BIGINT UNSIGNED near max value
+-- PK values near 2^64 to test big.Int handling
+-- 500 rows inserted at high PK range
+-- ============================================================
+DROP TABLE IF EXISTS t_big_unsigned;
+CREATE TABLE t_big_unsigned (
+  id BIGINT UNSIGNED NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_status (status)
+) ENGINE=InnoDB;
+
+INSERT INTO t_big_unsigned (id, status, created_at)
+SELECT
+  18446744073709551615 - n AS id,
+  CASE
+    WHEN n % 5 IN (0,1) THEN 'expired'
+    ELSE 'active'
+  END AS status,
+  CASE
+    WHEN n % 5 IN (0,1) THEN DATE_ADD('2023-01-01', INTERVAL (n % 365) DAY)
+    ELSE DATE_ADD('2025-01-01', INTERVAL (n % 365) DAY)
+  END AS created_at
+FROM _nums
+WHERE n < 500;
+
+-- ============================================================
+-- Table 11: t_negative_pk — Negative PK values
+-- Tests handling of signed BIGINT with negative values
+-- 500 rows spanning negative to positive range
+-- ============================================================
+DROP TABLE IF EXISTS t_negative_pk;
+CREATE TABLE t_negative_pk (
+  id BIGINT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_status (status)
+) ENGINE=InnoDB;
+
+INSERT INTO t_negative_pk (id, status, created_at)
+SELECT
+  n - 250 AS id,
+  CASE
+    WHEN n % 5 IN (0,1) THEN 'expired'
+    ELSE 'active'
+  END AS status,
+  CASE
+    WHEN n % 5 IN (0,1) THEN DATE_ADD('2023-01-01', INTERVAL (n % 365) DAY)
+    ELSE DATE_ADD('2025-01-01', INTERVAL (n % 365) DAY)
+  END AS created_at
+FROM _nums
+WHERE n < 500;
+
+-- ============================================================
+-- Table 12: t_huge_range — Sparse rows across huge PK range
+-- PK range spans 0 to 10 billion, only ~200 rows inserted
+-- Tests efficient sparse chunk handling with big.Int
+-- ============================================================
+DROP TABLE IF EXISTS t_huge_range;
+CREATE TABLE t_huge_range (
+  id BIGINT UNSIGNED NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  value DOUBLE NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_status (status)
+) ENGINE=InnoDB;
+
+INSERT INTO t_huge_range (id, status, value, created_at)
+SELECT
+  n * 50000000 AS id,
+  CASE
+    WHEN n % 5 IN (0,1) THEN 'expired'
+    ELSE 'active'
+  END AS status,
+  ROUND(RAND() * 100, 2) AS value,
+  CASE
+    WHEN n % 5 IN (0,1) THEN DATE_ADD('2023-01-01', INTERVAL (n % 365) DAY)
+    ELSE DATE_ADD('2025-01-01', INTERVAL (n % 365) DAY)
+  END AS created_at
+FROM _nums
+WHERE n < 200;
+
+-- ============================================================
 -- Summary
 -- ============================================================
 SELECT 't_orders' AS tbl, COUNT(*) AS total, SUM(status='expired' AND created_at < '2024-01-01') AS matching FROM t_orders
