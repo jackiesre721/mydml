@@ -378,6 +378,14 @@ SELECT
 FROM _nums
 WHERE n < 500;
 
+-- Insert explicit rows above int64 max (9223372036854775807)
+INSERT INTO t_big_unsigned (id, status, created_at) VALUES
+  (9223372036854775808, 'expired', '2023-06-01 00:00:00'),
+  (9223372036854775809, 'expired', '2023-07-01 00:00:00'),
+  (10000000000000000000, 'expired', '2023-08-01 00:00:00'),
+  (18000000000000000000, 'active',  '2025-01-01 00:00:00'),
+  (18446744073709551615, 'expired', '2023-09-01 00:00:00');
+
 -- ============================================================
 -- Table 11: t_negative_pk — Negative PK values
 -- Tests handling of signed BIGINT with negative values
