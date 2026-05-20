@@ -58,6 +58,19 @@ func Default() *Config {
 }
 
 func (c *Config) Validate() error {
+	if err := c.validateRequired(); err != nil {
+		return err
+	}
+	if err := c.validateMode(); err != nil {
+		return err
+	}
+	if err := validateWhere(c.Where); err != nil {
+		return err
+	}
+	return c.validateRanges()
+}
+
+func (c *Config) validateRequired() error {
 	if c.Host == "" {
 		return fmt.Errorf("host is required")
 	}
@@ -76,6 +89,10 @@ func (c *Config) Validate() error {
 	if c.Where == "" {
 		return fmt.Errorf("where condition is required (safety: unconditional operations are not allowed)")
 	}
+	return nil
+}
+
+func (c *Config) validateMode() error {
 	if c.Mode == "update" && c.Set == "" {
 		return fmt.Errorf("--set is required for update mode (e.g. --set \"status = 'archived'\")")
 	}
@@ -90,10 +107,10 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("source and target tables must be different")
 		}
 	}
-	// WHERE constraints: no subqueries, no LIMIT
-	if err := validateWhere(c.Where); err != nil {
-		return err
-	}
+	return nil
+}
+
+func (c *Config) validateRanges() error {
 	if c.BatchSize < 100 || c.BatchSize > 5000 {
 		return fmt.Errorf("batch_size must be between 100 and 5000")
 	}

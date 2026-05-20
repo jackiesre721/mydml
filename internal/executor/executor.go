@@ -83,6 +83,65 @@ func (e *Executor) GetStats() Stats {
 	}
 }
 
+func (e *Executor) shouldStop() bool {
+	if e.panicked.Load() {
+		return true
+	}
+	if e.stopped.Load() {
+		e.Reporter.Warn("stop signal received, completing current chunk")
+		return true
+	}
+	return false
+}
+
+func (e *Executor) waitWhilePaused(ctx context.Context) error {
+	for e.paused.Load() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(1 * time.Second):
+		}
+	}
+	return nil
+}
+
+func (e *Executor) executeChunk(ctx context.Context, chunkCol, table, where string, chunkIndex, curStart, chunkEnd int64) (int64, time.Duration) {
+	if e.Cfg.DryRun {
+		return e.executeDryRunChunk(ctx, chunkCol, table, where, chunkIndex, curStart, chunkEnd)
+	}
+	return e.executeRealChunk(ctx, chunkCol, table, where, chunkIndex, curStart, chunkEnd)
+}
+
+func (e *Executor) executeDryRunChunk(ctx context.Context, chunkCol, table, where string, chunkIndex, curStart, chunkEnd int64) (int64, time.Duration) {
+	query := fmt.Sprintf(
+		"SELECT COUNT(*) FROM `%s` WHERE `%s` >= %d AND `%s` < %d AND %s",
+		table, chunkCol, curStart, chunkCol, chunkEnd, where,
+	)
+	startTime := time.Now()
+	var count int64
+	if err := e.DB.QueryRowSQL(ctx, query).Scan(&count); err != nil {
+		e.Reporter.Error("dry-run query failed at chunk %d [%d,%d): %v | sql=%.200s", chunkIndex, curStart, chunkEnd, err, query)
+		return 0, 0
+	}
+	e.totalAff.Add(count)
+	e.totalChunks.Add(1)
+	return count, time.Since(startTime)
+}
+
+func (e *Executor) executeRealChunk(ctx context.Context, chunkCol, table, where string, chunkIndex, curStart, chunkEnd int64) (int64, time.Duration) {
+	startTime := time.Now()
+	query := e.buildChunkSQL(table, chunkCol, curStart, chunkEnd, where)
+	result, err := e.DB.ExecSQL(ctx, query)
+	if err != nil {
+		e.Reporter.Error("%s failed at chunk %d [%d,%d): %v | sql=%.200s", e.Cfg.Mode, chunkIndex, curStart, chunkEnd, err, query)
+		return 0, time.Since(startTime)
+	}
+	affected, _ := result.RowsAffected()
+	e.totalAff.Add(affected)
+	e.totalChunks.Add(1)
+	return affected, time.Since(startTime)
+}
+
 func (e *Executor) Execute(ctx context.Context) (*Stats, error) {
 	if _, err := e.DB.ExecSQL(ctx, "SET SESSION innodb_lock_wait_timeout = 5"); err != nil {
 		return nil, fmt.Errorf("set lock_wait_timeout: %w", err)
@@ -97,19 +156,11 @@ func (e *Executor) Execute(ctx context.Context) (*Stats, error) {
 
 	chunkIndex := int64(0)
 	for chunkStart := e.Plan.MinID; chunkStart <= e.Plan.MaxID; {
-		if e.panicked.Load() {
-			return nil, fmt.Errorf("panic signal received")
-		}
-		if e.stopped.Load() {
-			e.Reporter.Warn("stop signal received, completing current chunk")
+		if e.shouldStop() {
 			break
 		}
-		for e.paused.Load() {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(1 * time.Second):
-			}
+		if err := e.waitWhilePaused(ctx); err != nil {
+			return nil, err
 		}
 		select {
 		case <-ctx.Done():
@@ -117,7 +168,6 @@ func (e *Executor) Execute(ctx context.Context) (*Stats, error) {
 		default:
 		}
 
-		// Check critical load
 		if e.Cfg.CriticalLoad != "" {
 			if exceeded, _ := e.Monitor.CheckMaxLoad(e.Cfg.CriticalLoad); len(exceeded) > 0 {
 				e.Reporter.Warn("critical load exceeded, stopping: %v", exceeded)
@@ -130,40 +180,7 @@ func (e *Executor) Execute(ctx context.Context) (*Stats, error) {
 			chunkEnd = e.Plan.MaxID + 1
 		}
 
-		curStart := chunkStart
-		chunkDuration := time.Duration(0)
-		var chunkAffected int64
-
-		if e.Cfg.DryRun {
-			var count int64
-			query := fmt.Sprintf(
-				"SELECT COUNT(*) FROM `%s` WHERE `%s` >= %d AND `%s` < %d AND %s",
-				table, chunkCol, curStart, chunkCol, chunkEnd, where,
-			)
-			startTime := time.Now()
-			if err := e.DB.QueryRowSQL(ctx, query).Scan(&count); err != nil {
-				e.Reporter.Error("dry-run query failed at chunk %d [%d,%d): %v | sql=%.200s", chunkIndex, curStart, chunkEnd, err, query)
-				chunkStart += e.Plan.ChunkStep
-				chunkIndex++
-				continue
-			}
-			chunkDuration = time.Since(startTime)
-			chunkAffected = count
-			e.totalAff.Add(count)
-			e.totalChunks.Add(1)
-		} else {
-			chunkStartTime := time.Now()
-			query := e.buildChunkSQL(table, chunkCol, curStart, chunkEnd, where)
-			result, err := e.DB.ExecSQL(ctx, query)
-			if err != nil {
-				e.Reporter.Error("%s failed at chunk %d [%d,%d): %v | sql=%.200s", e.Cfg.Mode, chunkIndex, curStart, chunkEnd, err, query)
-			} else {
-				chunkAffected, _ = result.RowsAffected()
-				e.totalAff.Add(chunkAffected)
-				e.totalChunks.Add(1)
-			}
-			chunkDuration = time.Since(chunkStartTime)
-		}
+		chunkAffected, chunkDuration := e.executeChunk(ctx, chunkCol, table, where, chunkIndex, chunkStart, chunkEnd)
 
 		lag, _ := e.Monitor.CheckReplicationLag()
 		e.updateMaxLag(lag)
@@ -175,7 +192,7 @@ func (e *Executor) Execute(ctx context.Context) (*Stats, error) {
 		e.Reporter.ChunkCompleted(reporter.ChunkFields{
 			ChunkIndex:    chunkIndex,
 			TotalChunks:   e.Plan.TotalChunks,
-			ChunkStart:    curStart,
+			ChunkStart:    chunkStart,
 			ChunkEnd:      chunkEnd,
 			Affected:      chunkAffected,
 			TotalAffected: totalAff,
