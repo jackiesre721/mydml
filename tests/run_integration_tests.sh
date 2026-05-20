@@ -828,7 +828,8 @@ log "--- Test 46: Huge PK range sparse ---"
 before=$(count_matching t_huge_range "status = 'expired' AND created_at < '2024-01-01'")
 run_tool "$LOGDIR/test46.log" \
   --table=t_huge_range \
-  --where="status = 'expired' AND created_at < '2024-01-01'"
+  --where="status = 'expired' AND created_at < '2024-01-01'" \
+  --batch-size=1000000
 after=$(count_matching t_huge_range "status = 'expired' AND created_at < '2024-01-01'")
 if log_has "$LOGDIR/test46.log" "plan generated" \
   && log_has "$LOGDIR/test46.log" "task completed" \
