@@ -376,7 +376,7 @@ SELECT
     ELSE DATE_ADD('2025-01-01', INTERVAL (n % 365) DAY)
   END AS created_at
 FROM _nums
-WHERE n < 500;
+WHERE n BETWEEN 1 AND 499;
 
 -- Insert explicit rows above int64 max (9223372036854775807)
 INSERT INTO t_big_unsigned (id, status, created_at) VALUES
