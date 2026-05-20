@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/big"
 	"sync/atomic"
 	"time"
 
@@ -38,8 +39,8 @@ type Executor struct {
 	consecutiveFail atomic.Int64
 	startTime       time.Time
 
-	maxRetries       int
-	maxConsecFails   int64
+	maxRetries     int
+	maxConsecFails int64
 }
 
 func NewExecutor(db *config.LogDB, cfg *config.Config, plan *planner.Plan, t *throttler.Throttler,
@@ -111,22 +112,22 @@ func (e *Executor) waitWhilePaused(ctx context.Context) error {
 	return nil
 }
 
-func (e *Executor) executeChunk(ctx context.Context, chunkCol, table, where string, chunkIndex, curStart, chunkEnd int64) (int64, time.Duration) {
+func (e *Executor) executeChunk(ctx context.Context, chunkCol, table, where string, chunkIndex int64, curStart, chunkEnd *big.Int) (int64, time.Duration) {
 	if e.Cfg.DryRun {
 		return e.executeDryRunChunk(ctx, chunkCol, table, where, chunkIndex, curStart, chunkEnd)
 	}
 	return e.executeRealChunk(ctx, chunkCol, table, where, chunkIndex, curStart, chunkEnd)
 }
 
-func (e *Executor) executeDryRunChunk(ctx context.Context, chunkCol, table, where string, chunkIndex, curStart, chunkEnd int64) (int64, time.Duration) {
+func (e *Executor) executeDryRunChunk(ctx context.Context, chunkCol, table, where string, chunkIndex int64, curStart, chunkEnd *big.Int) (int64, time.Duration) {
 	query := fmt.Sprintf(
-		"SELECT COUNT(*) FROM `%s` WHERE `%s` >= %d AND `%s` < %d AND %s",
-		table, chunkCol, curStart, chunkCol, chunkEnd, where,
+		"SELECT COUNT(*) FROM `%s` WHERE `%s` >= %s AND `%s` < %s AND %s",
+		table, chunkCol, curStart.String(), chunkCol, chunkEnd.String(), where,
 	)
 	startTime := time.Now()
 	var count int64
 	if err := e.DB.QueryRowSQL(ctx, query).Scan(&count); err != nil {
-		e.Reporter.Error("dry-run query failed at chunk %d [%d,%d): %v | sql=%.200s", chunkIndex, curStart, chunkEnd, err, query)
+		e.Reporter.Error("dry-run query failed at chunk %d [%s,%s): %v | sql=%.200s", chunkIndex, curStart.String(), chunkEnd.String(), err, query)
 		return 0, 0
 	}
 	e.totalAff.Add(count)
@@ -134,14 +135,14 @@ func (e *Executor) executeDryRunChunk(ctx context.Context, chunkCol, table, wher
 	return count, time.Since(startTime)
 }
 
-func (e *Executor) executeRealChunk(ctx context.Context, chunkCol, table, where string, chunkIndex, curStart, chunkEnd int64) (int64, time.Duration) {
+func (e *Executor) executeRealChunk(ctx context.Context, chunkCol, table, where string, chunkIndex int64, curStart, chunkEnd *big.Int) (int64, time.Duration) {
 	startTime := time.Now()
 	query := e.buildChunkSQL(table, chunkCol, curStart, chunkEnd, where)
 
 	for attempt := 0; attempt <= e.maxRetries; attempt++ {
 		if attempt > 0 {
 			backoff := time.Duration(attempt*attempt) * time.Second
-			e.Reporter.Warn("retrying chunk %d [%d,%d), attempt %d, backoff %v", chunkIndex, curStart, chunkEnd, attempt+1, backoff)
+			e.Reporter.Warn("retrying chunk %d [%s,%s), attempt %d, backoff %v", chunkIndex, curStart.String(), chunkEnd.String(), attempt+1, backoff)
 			if err := e.Throttler.Sleep(ctx, backoff); err != nil {
 				return 0, time.Since(startTime)
 			}
@@ -149,7 +150,7 @@ func (e *Executor) executeRealChunk(ctx context.Context, chunkCol, table, where 
 
 		result, err := e.DB.ExecSQL(ctx, query)
 		if err != nil {
-			e.Reporter.Error("%s failed at chunk %d [%d,%d): %v | sql=%.200s", e.Cfg.Mode, chunkIndex, curStart, chunkEnd, err, query)
+			e.Reporter.Error("%s failed at chunk %d [%s,%s): %v | sql=%.200s", e.Cfg.Mode, chunkIndex, curStart.String(), chunkEnd.String(), err, query)
 			continue
 		}
 		affected, _ := result.RowsAffected()
@@ -159,7 +160,7 @@ func (e *Executor) executeRealChunk(ctx context.Context, chunkCol, table, where 
 		return affected, time.Since(startTime)
 	}
 
-	e.Reporter.Error("chunk %d [%d,%d) failed after %d retries", chunkIndex, curStart, chunkEnd, e.maxRetries)
+	e.Reporter.Error("chunk %d [%s,%s) failed after %d retries", chunkIndex, curStart.String(), chunkEnd.String(), e.maxRetries)
 	e.consecutiveFail.Add(1)
 	return 0, time.Since(startTime)
 }
@@ -177,7 +178,8 @@ func (e *Executor) Execute(ctx context.Context) (*Stats, error) {
 	where := e.Cfg.Where
 
 	chunkIndex := int64(0)
-	for chunkStart := e.Plan.MinID; chunkStart <= e.Plan.MaxID; {
+	chunkStep := big.NewInt(e.Plan.ChunkStep)
+	for chunkStart := new(big.Int).Set(e.Plan.MinID); chunkStart.Cmp(e.Plan.MaxID) <= 0; {
 		if e.shouldStop() {
 			break
 		}
@@ -197,9 +199,9 @@ func (e *Executor) Execute(ctx context.Context) (*Stats, error) {
 			}
 		}
 
-		chunkEnd := chunkStart + e.Plan.ChunkStep
-		if chunkEnd > e.Plan.MaxID {
-			chunkEnd = e.Plan.MaxID + 1
+		chunkEnd := new(big.Int).Add(chunkStart, chunkStep)
+		if chunkEnd.Cmp(e.Plan.MaxID) > 0 {
+			chunkEnd = new(big.Int).Add(e.Plan.MaxID, big.NewInt(1))
 		}
 
 		chunkAffected, chunkDuration := e.executeChunk(ctx, chunkCol, table, where, chunkIndex, chunkStart, chunkEnd)
@@ -237,8 +239,8 @@ func (e *Executor) Execute(ctx context.Context) (*Stats, error) {
 			break
 		}
 
-		nextStart := chunkStart + e.Plan.ChunkStep
-		if nextStart <= chunkStart {
+		nextStart := new(big.Int).Add(chunkStart, chunkStep)
+		if nextStart.Cmp(chunkStart) <= 0 {
 			break
 		}
 		chunkStart = nextStart
@@ -249,11 +251,11 @@ func (e *Executor) Execute(ctx context.Context) (*Stats, error) {
 	return &stats, nil
 }
 
-func (e *Executor) buildChunkSQL(table, chunkCol string, chunkStart, chunkEnd int64, where string) string {
+func (e *Executor) buildChunkSQL(table, chunkCol string, chunkStart, chunkEnd *big.Int, where string) string {
 	if e.Cfg.Mode == "update" {
 		return fmt.Sprintf(
-			"UPDATE `%s` SET %s WHERE `%s` >= %d AND `%s` < %d AND %s",
-			table, e.Cfg.Set, chunkCol, chunkStart, chunkCol, chunkEnd, where,
+			"UPDATE `%s` SET %s WHERE `%s` >= %s AND `%s` < %s AND %s",
+			table, e.Cfg.Set, chunkCol, chunkStart.String(), chunkCol, chunkEnd.String(), where,
 		)
 	}
 	if e.Cfg.Mode == "insert_select" {
@@ -265,12 +267,12 @@ func (e *Executor) buildChunkSQL(table, chunkCol string, chunkStart, chunkEnd in
 			colInsert = fmt.Sprintf(" (%s)", cols)
 		}
 		return fmt.Sprintf(
-			"INSERT INTO `%s`%s SELECT %s FROM `%s` WHERE `%s` >= %d AND `%s` < %d AND %s",
-			e.Cfg.TargetTable, colInsert, colClause, table, chunkCol, chunkStart, chunkCol, chunkEnd, where,
+			"INSERT INTO `%s`%s SELECT %s FROM `%s` WHERE `%s` >= %s AND `%s` < %s AND %s",
+			e.Cfg.TargetTable, colInsert, colClause, table, chunkCol, chunkStart.String(), chunkCol, chunkEnd.String(), where,
 		)
 	}
 	return fmt.Sprintf(
-		"DELETE FROM `%s` WHERE `%s` >= %d AND `%s` < %d AND %s",
-		table, chunkCol, chunkStart, chunkCol, chunkEnd, where,
+		"DELETE FROM `%s` WHERE `%s` >= %s AND `%s` < %s AND %s",
+		table, chunkCol, chunkStart.String(), chunkCol, chunkEnd.String(), where,
 	)
 }

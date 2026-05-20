@@ -67,8 +67,8 @@ func Run(cfg *config.Config) error {
 	}
 	rep.Logger().Info("execution plan generated",
 		slog.String("chunk_column", plan.ChunkColumn),
-		slog.Int64("min_id", plan.MinID),
-		slog.Int64("max_id", plan.MaxID),
+		slog.String("min_id", plan.MinID.String()),
+		slog.String("max_id", plan.MaxID.String()),
 		slog.Int64("total_chunks", plan.TotalChunks),
 	)
 

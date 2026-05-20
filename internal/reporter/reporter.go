@@ -3,6 +3,7 @@ package reporter
 import (
 	"fmt"
 	"log/slog"
+	"math/big"
 	"os"
 	"time"
 
@@ -18,8 +19,8 @@ type Reporter struct {
 type ChunkFields struct {
 	ChunkIndex    int64
 	TotalChunks   int64
-	ChunkStart    int64
-	ChunkEnd      int64
+	ChunkStart    *big.Int
+	ChunkEnd      *big.Int
 	Affected      int64
 	TotalAffected int64
 	ReplLag       float64
@@ -112,8 +113,8 @@ func (r *Reporter) ChunkCompleted(f ChunkFields) {
 		slog.Int64("chunk", f.ChunkIndex),
 		slog.Int64("total_chunks", f.TotalChunks),
 		slog.Float64("percent", pct),
-		slog.Int64("range_start", f.ChunkStart),
-		slog.Int64("range_end", f.ChunkEnd),
+		slog.String("range_start", f.ChunkStart.String()),
+		slog.String("range_end", f.ChunkEnd.String()),
 		slog.Int64("affected", f.Affected),
 		slog.Int64("total_affected", f.TotalAffected),
 		slog.Float64("speed_rows_per_sec", speed),

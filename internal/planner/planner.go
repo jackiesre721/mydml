@@ -5,14 +5,15 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"strings"
 
 	"github.com/jackiesre721/mydml/internal/config"
 )
 
 type Plan struct {
-	MinID       int64
-	MaxID       int64
+	MinID       *big.Int
+	MaxID       *big.Int
 	ChunkStep   int64
 	TotalChunks int64
 	ChunkColumn string
@@ -51,25 +52,35 @@ func New(db *config.LogDB, cfg *config.Config) (*Plan, error) {
 	}
 
 	// 3. Query PK range via ORDER BY + LIMIT (faster than MIN/MAX on large tables)
-	var minID, maxID sql.NullInt64
-	minQuery := fmt.Sprintf("SELECT `%s` FROM `%s` ORDER BY `%s` ASC LIMIT 1", chunkCol, cfg.Table, chunkCol)
-	if err := db.QueryRowSQL(ctx, minQuery).Scan(&minID); err != nil {
+	//    Read as string to handle BIGINT UNSIGNED (> int64 max) and negative values.
+	var minStr, maxStr sql.NullString
+	minQuery := fmt.Sprintf("SELECT CAST(`%s` AS CHAR) FROM `%s` ORDER BY `%s` ASC LIMIT 1", chunkCol, cfg.Table, chunkCol)
+	if err := db.QueryRowSQL(ctx, minQuery).Scan(&minStr); err != nil {
 		return nil, fmt.Errorf("query PK min: %w", err)
 	}
-	maxQuery := fmt.Sprintf("SELECT `%s` FROM `%s` ORDER BY `%s` DESC LIMIT 1", chunkCol, cfg.Table, chunkCol)
-	if err := db.QueryRowSQL(ctx, maxQuery).Scan(&maxID); err != nil {
+	maxQuery := fmt.Sprintf("SELECT CAST(`%s` AS CHAR) FROM `%s` ORDER BY `%s` DESC LIMIT 1", chunkCol, cfg.Table, chunkCol)
+	if err := db.QueryRowSQL(ctx, maxQuery).Scan(&maxStr); err != nil {
 		return nil, fmt.Errorf("query PK max: %w", err)
 	}
 
-	if !minID.Valid || !maxID.Valid {
+	if !minStr.Valid || !maxStr.Valid {
 		return nil, fmt.Errorf("table %s is empty", cfg.Table)
 	}
 
-	pkRange := maxID.Int64 - minID.Int64
-	if pkRange <= 0 {
+	minID := new(big.Int)
+	if _, ok := minID.SetString(minStr.String, 10); !ok {
+		return nil, fmt.Errorf("parse PK min %q: invalid integer", minStr.String)
+	}
+	maxID := new(big.Int)
+	if _, ok := maxID.SetString(maxStr.String, 10); !ok {
+		return nil, fmt.Errorf("parse PK max %q: invalid integer", maxStr.String)
+	}
+
+	pkRange := new(big.Int).Sub(maxID, minID)
+	if pkRange.Sign() <= 0 {
 		return &Plan{
-			MinID:       minID.Int64,
-			MaxID:       maxID.Int64,
+			MinID:       minID,
+			MaxID:       maxID,
 			ChunkStep:   1,
 			TotalChunks: 1,
 			ChunkColumn: chunkCol,
@@ -77,21 +88,22 @@ func New(db *config.LogDB, cfg *config.Config) (*Plan, error) {
 	}
 
 	chunkStep := int64(cfg.BatchSize)
-	totalChunks := pkRange / chunkStep
-	if pkRange%chunkStep != 0 {
+	pkRangeInt := pkRange.Int64()
+	totalChunks := pkRangeInt / chunkStep
+	if pkRangeInt%chunkStep != 0 {
 		totalChunks++
 	}
 
 	slog.Info("plan generated",
 		slog.String("chunk_column", chunkCol),
-		slog.Int64("min_id", minID.Int64),
-		slog.Int64("max_id", maxID.Int64),
+		slog.String("min_id", minID.String()),
+		slog.String("max_id", maxID.String()),
 		slog.Int64("total_chunks", totalChunks),
 	)
 
 	return &Plan{
-		MinID:       minID.Int64,
-		MaxID:       maxID.Int64,
+		MinID:       minID,
+		MaxID:       maxID,
 		ChunkStep:   chunkStep,
 		TotalChunks: totalChunks,
 		ChunkColumn: chunkCol,
